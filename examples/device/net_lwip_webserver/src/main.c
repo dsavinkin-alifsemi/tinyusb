@@ -30,7 +30,7 @@ this appears as either a RNDIS or CDC-ECM USB virtual network adapter; the OS pi
 
 RNDIS should be valid on Linux and Windows hosts, and CDC-ECM should be valid on Linux and macOS hosts
 
-The MCU appears to the host as IP address 192.168.7.1, and provides a DHCP server, DNS server, and web server.
+The MCU appears to the host as IP address 192.168.77.1, and provides a DHCP server, DNS server, and web server.
 */
 /*
 Some smartphones *may* work with this implementation as well, but likely have limited (broken) drivers,
@@ -72,22 +72,22 @@ static struct pbuf *received_frame;
 uint8_t tud_network_mac_address[6] = {0x02, 0x02, 0x84, 0x6A, 0x96, 0x00};
 
 /* network parameters of this MCU */
-static const ip4_addr_t ipaddr = INIT_IP4(192, 168, 7, 1);
+static const ip4_addr_t ipaddr = INIT_IP4(192, 168, 77, 1);
 static const ip4_addr_t netmask = INIT_IP4(255, 255, 255, 0);
 static const ip4_addr_t gateway = INIT_IP4(0, 0, 0, 0);
 
 /* database IP addresses that can be offered to the host; this must be in RAM to store assigned MAC addresses */
 static dhcp_entry_t entries[] = {
     /* mac ip address               lease time */
-    {{0}, INIT_IP4(192, 168, 7, 2), 24 * 60 * 60},
-    {{0}, INIT_IP4(192, 168, 7, 3), 24 * 60 * 60},
-    {{0}, INIT_IP4(192, 168, 7, 4), 24 * 60 * 60},
+    {{0}, INIT_IP4(192, 168, 77, 2), 24 * 60 * 60},
+    {{0}, INIT_IP4(192, 168, 77, 3), 24 * 60 * 60},
+    {{0}, INIT_IP4(192, 168, 77, 4), 24 * 60 * 60},
 };
 
 static const dhcp_config_t dhcp_config = {
     .router = INIT_IP4(0, 0, 0, 0),  /* router address (if any) */
     .port = 67,                      /* listen port */
-    .dns = INIT_IP4(192, 168, 7, 1), /* dns server (if any) */
+    .dns = INIT_IP4(192, 168, 77, 1), /* dns server (if any) */
     "usb",                           /* dns suffix */
     TU_ARRAY_SIZE(entries),          /* num entry */
     entries                          /* entries */
@@ -239,7 +239,7 @@ int main(void) {
   httpd_init();
 
 #ifdef INCLUDE_IPERF
-  // test with: iperf -c 192.168.7.1 -e -i 1 -M 5000 -l 8192 -r
+  // test with: iperf -c 192.168.77.1 -e -i 1 -M 5000 -l 8192 -r
   lwiperf_start_tcp_server_default(NULL, NULL);
 #endif
 

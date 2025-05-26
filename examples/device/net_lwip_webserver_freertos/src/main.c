@@ -69,7 +69,7 @@ try changing the first byte of tud_network_mac_address[] below from 0x02 to 0x00
 #endif
 
 #define BLINKY_STACK_SIZE   configMINIMAL_STACK_SIZE
-#define LWIP_STACK_SIZE     (10 * configMINIMAL_STACK_SIZE) //TODO: Correct it
+#define LWIP_STACK_SIZE     configMINIMAL_STACK_SIZE
 
 #define INIT_IP4(a, b, c, d) \
   { PP_HTONL(LWIP_MAKEU32(a, b, c, d)) }
@@ -136,9 +136,6 @@ static err_t linkoutput_fn(struct netif *netif, struct pbuf *p) {
       tud_network_xmit(p, 0 /* unused for this example */);
       return ERR_OK;
     }
-
-    /* transfer execution to TinyUSB in the hopes that it will finish transmitting the prior packet */
-    tud_task();
   }
 }
 
@@ -254,11 +251,11 @@ int main(void) {
 #if configSUPPORT_STATIC_ALLOCATION
   xTaskCreateStatic(led_blinking_task, "blinky", BLINKY_STACK_SIZE, NULL, 1, blinky_stack, &blinky_taskdef);
   xTaskCreateStatic(usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-1, usb_device_stack, &usb_device_taskdef);
-  //xTaskCreateStatic(lwip_task, "lwip", LWIP_STACK_SIZE, NULL, configMAX_PRIORITIES - 2, lwip_stack, &lwip_taskdef);
+  xTaskCreateStatic(lwip_task, "lwip", LWIP_STACK_SIZE, NULL, configMAX_PRIORITIES - 2, lwip_stack, &lwip_taskdef);
 #else
   xTaskCreate(led_blinking_task, "blinky", BLINKY_STACK_SIZE, NULL, 1, NULL);
   xTaskCreate(usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES - 1, NULL);
-  //xTaskCreate(lwip_task, "lwip", LWIP_STACK_SIZE, NULL, configMAX_PRIORITIES - 2, NULL);
+  xTaskCreate(lwip_task, "lwip", LWIP_STACK_SIZE, NULL, configMAX_PRIORITIES - 2, NULL);
 #endif
 
 #if !TUSB_MCU_VENDOR_ESPRESSIF
@@ -292,6 +289,9 @@ void usb_device_task(void *param)
 
   while (1) {
     tud_task();
+
+    // following code only run if tud_task() process at least 1 event
+    //tud_cdc_write_flush();
   }
 }
 
@@ -306,11 +306,13 @@ void lwip_task(void *param)
   httpd_init();
 
 #ifdef INCLUDE_IPERF
-  // test with: iperf -c 192.168.7.1 -e -i 1 -M 5000 -l 8192 -r
+  // test with: iperf -c 192.168.77.1 -e -i 1 -M 5000 -l 8192 -r
   lwiperf_start_tcp_server_default(NULL, NULL);
 #endif
+
   while (1) {
     service_traffic();
+    vTaskDelay( 1 );
   }
 }
 
