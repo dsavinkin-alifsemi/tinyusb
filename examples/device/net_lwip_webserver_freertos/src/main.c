@@ -30,7 +30,7 @@ this appears as either a RNDIS or CDC-ECM USB virtual network adapter; the OS pi
 
 RNDIS should be valid on Linux and Windows hosts, and CDC-ECM should be valid on Linux and macOS hosts
 
-The MCU appears to the host as IP address 192.168.7.1, and provides a DHCP server, DNS server, and web server.
+The MCU appears to the host as IP address 192.168.77.1, and provides a DHCP server, DNS server, and web server.
 */
 /*
 Some smartphones *may* work with this implementation as well, but likely have limited (broken) drivers,
@@ -42,6 +42,10 @@ try modifying ./examples/devices/net_lwip_webserver/usb_descriptors.c so that CO
 The smartphone may be artificially picky about which Ethernet MAC address to recognize; if this happens,
 try changing the first byte of tud_network_mac_address[] below from 0x02 to 0x00 (clearing bit 1).
 */
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "bsp/board_api.h"
 #include "tusb.h"
@@ -57,8 +61,34 @@ try changing the first byte of tud_network_mac_address[] below from 0x02 to 0x00
   #include "lwip/apps/lwiperf.h"
 #endif
 
+#if TUSB_MCU_VENDOR_ESPRESSIF
+#define USBD_STACK_SIZE     4096
+#else
+    // Increase stack size when debug log is enabled
+#define USBD_STACK_SIZE    (3*configMINIMAL_STACK_SIZE/2) * (CFG_TUSB_DEBUG ? 2 : 1)
+#endif
+
+#define BLINKY_STACK_SIZE   configMINIMAL_STACK_SIZE
+#define LWIP_STACK_SIZE     (10 * configMINIMAL_STACK_SIZE) //TODO: Correct it
+
 #define INIT_IP4(a, b, c, d) \
   { PP_HTONL(LWIP_MAKEU32(a, b, c, d)) }
+
+// static task
+#if configSUPPORT_STATIC_ALLOCATION
+StackType_t  usb_device_stack[USBD_STACK_SIZE];
+StaticTask_t usb_device_taskdef;
+
+StackType_t  lwip_stack[LWIP_STACK_SIZE];
+StaticTask_t lwip_taskdef;
+
+StackType_t blinky_stack[BLINKY_STACK_SIZE];
+StaticTask_t blinky_taskdef;
+#endif
+
+void usb_device_task(void *param);
+void lwip_task(void *param);
+void led_blinking_task(void* param);
 
 /* lwip context */
 static struct netif netif_data;
@@ -72,22 +102,22 @@ static struct pbuf *received_frame;
 uint8_t tud_network_mac_address[6] = {0x02, 0x02, 0x84, 0x6A, 0x96, 0x00};
 
 /* network parameters of this MCU */
-static const ip4_addr_t ipaddr = INIT_IP4(192, 168, 7, 1);
+static const ip4_addr_t ipaddr = INIT_IP4(192, 168, 77, 1);
 static const ip4_addr_t netmask = INIT_IP4(255, 255, 255, 0);
 static const ip4_addr_t gateway = INIT_IP4(0, 0, 0, 0);
 
 /* database IP addresses that can be offered to the host; this must be in RAM to store assigned MAC addresses */
 static dhcp_entry_t entries[] = {
     /* mac ip address               lease time */
-    {{0}, INIT_IP4(192, 168, 7, 2), 24 * 60 * 60},
-    {{0}, INIT_IP4(192, 168, 7, 3), 24 * 60 * 60},
-    {{0}, INIT_IP4(192, 168, 7, 4), 24 * 60 * 60},
+    {{0}, INIT_IP4(192, 168, 77, 2), 24 * 60 * 60},
+    {{0}, INIT_IP4(192, 168, 77, 3), 24 * 60 * 60},
+    {{0}, INIT_IP4(192, 168, 77, 4), 24 * 60 * 60},
 };
 
 static const dhcp_config_t dhcp_config = {
     .router = INIT_IP4(0, 0, 0, 0),  /* router address (if any) */
     .port = 67,                      /* listen port */
-    .dns = INIT_IP4(192, 168, 7, 1), /* dns server (if any) */
+    .dns = INIT_IP4(192, 168, 77, 1), /* dns server (if any) */
     "usb",                           /* dns suffix */
     TU_ARRAY_SIZE(entries),          /* num entry */
     entries                          /* entries */
@@ -220,6 +250,35 @@ int main(void) {
   /* initialize TinyUSB */
   board_init();
 
+  // Create task for: tinyusb, lwip, blinky
+#if configSUPPORT_STATIC_ALLOCATION
+  xTaskCreateStatic(led_blinking_task, "blinky", BLINKY_STACK_SIZE, NULL, 1, blinky_stack, &blinky_taskdef);
+  xTaskCreateStatic(usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-1, usb_device_stack, &usb_device_taskdef);
+  //xTaskCreateStatic(lwip_task, "lwip", LWIP_STACK_SIZE, NULL, configMAX_PRIORITIES - 2, lwip_stack, &lwip_taskdef);
+#else
+  xTaskCreate(led_blinking_task, "blinky", BLINKY_STACK_SIZE, NULL, 1, NULL);
+  xTaskCreate(usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES - 1, NULL);
+  //xTaskCreate(lwip_task, "lwip", LWIP_STACK_SIZE, NULL, configMAX_PRIORITIES - 2, NULL);
+#endif
+
+#if !TUSB_MCU_VENDOR_ESPRESSIF
+  // skip starting scheduler (and return) for ESP32-S2 or ESP32-S3
+  vTaskStartScheduler();
+#endif
+
+  return 0;
+}
+
+#if TUSB_MCU_VENDOR_ESPRESSIF
+void app_main(void) {
+    main();
+}
+#endif
+
+void usb_device_task(void *param)
+{
+  (void) param;
+
   // init device stack on configured roothub port
   tusb_rhport_init_t dev_init = {
     .role = TUSB_ROLE_DEVICE,
@@ -231,6 +290,14 @@ int main(void) {
     board_init_after_tusb();
   }
 
+  while (1) {
+    tud_task();
+  }
+}
+
+void lwip_task(void *param)
+{
+  (void) param;
   /* initialize lwip, dhcp-server, dns-server, and http */
   init_lwip();
   while (!netif_is_up(&netif_data));
@@ -242,13 +309,25 @@ int main(void) {
   // test with: iperf -c 192.168.7.1 -e -i 1 -M 5000 -l 8192 -r
   lwiperf_start_tcp_server_default(NULL, NULL);
 #endif
-
   while (1) {
-    tud_task();
     service_traffic();
   }
+}
 
-  return 0;
+//--------------------------------------------------------------------+
+// BLINKING TASK
+//--------------------------------------------------------------------+
+void led_blinking_task(void* param) {
+    (void) param;
+    static bool led_state = false;
+
+    while (1) {
+        // Blink every interval ms
+        vTaskDelay( 500 / portTICK_PERIOD_MS);
+
+        board_led_write(led_state);
+        led_state = 1 - led_state; // toggle
+    }
 }
 
 /* lwip has provision for using a mutex, when applicable */

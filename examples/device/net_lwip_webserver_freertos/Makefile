@@ -1,3 +1,4 @@
+RTOS = freertos
 DEPS_SUBMODULES += lib/lwip
 
 include ../../build_system/make/make.mk
