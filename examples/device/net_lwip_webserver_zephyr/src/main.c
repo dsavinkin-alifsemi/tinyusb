@@ -62,9 +62,9 @@ try changing the first byte of tud_network_mac_address[] below from 0x02 to 0x00
 #endif
 
 
-#define USBD_STACK_SIZE     4096
-#define BLINKY_STACK_SIZE   2048
-#define LWIP_STACK_SIZE     2048
+#define USBD_STACK_SIZE     (4 * 1024)
+#define BLINKY_STACK_SIZE   (2 * 1024)
+#define LWIP_STACK_SIZE     (2 * 1024)
 
 #define INIT_IP4(a, b, c, d) \
   { PP_HTONL(LWIP_MAKEU32(a, b, c, d)) }
@@ -128,6 +128,9 @@ static err_t linkoutput_fn(struct netif *netif, struct pbuf *p) {
       tud_network_xmit(p, 0 /* unused for this example */);
       return ERR_OK;
     }
+
+    /* transfer execution to TinyUSB in the hopes that it will finish transmitting the prior packet */
+    k_msleep( 1 );
   }
 }
 
@@ -241,11 +244,6 @@ int main(void) {
 
   // Create task for: tinyusb, lwip, blinky
 
-  k_thread_create(&led_blinking_taskdef, led_blinking_stack, BLINKY_STACK_SIZE,
-                  led_blinking_task, NULL, NULL, NULL,
-                  K_HIGHEST_APPLICATION_THREAD_PRIO, 0, K_NO_WAIT);
-  k_thread_name_set(&led_blinking_taskdef, "blinky");
-
   k_thread_create(&usb_device_taskdef, usb_device_stack, USBD_STACK_SIZE,
                   usb_device_task, NULL, NULL, NULL,
                   K_HIGHEST_APPLICATION_THREAD_PRIO-1, 0, K_NO_WAIT);
@@ -255,6 +253,11 @@ int main(void) {
                   lwip_task, NULL, NULL, NULL,
                   K_HIGHEST_APPLICATION_THREAD_PRIO-2, 0, K_NO_WAIT);
   k_thread_name_set(&lwip_taskdef, "lwip");
+
+  k_thread_create(&led_blinking_taskdef, led_blinking_stack, BLINKY_STACK_SIZE,
+                  led_blinking_task, NULL, NULL, NULL,
+                  K_HIGHEST_APPLICATION_THREAD_PRIO-3, 0, K_NO_WAIT);
+  k_thread_name_set(&led_blinking_taskdef, "blinky");
 
   return 0;
 }

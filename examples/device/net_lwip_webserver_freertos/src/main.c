@@ -136,6 +136,9 @@ static err_t linkoutput_fn(struct netif *netif, struct pbuf *p) {
       tud_network_xmit(p, 0 /* unused for this example */);
       return ERR_OK;
     }
+
+    /* transfer execution to TinyUSB in the hopes that it will finish transmitting the prior packet */
+    vTaskDelay( 1 );
   }
 }
 
@@ -249,13 +252,13 @@ int main(void) {
 
   // Create task for: tinyusb, lwip, blinky
 #if configSUPPORT_STATIC_ALLOCATION
-  xTaskCreateStatic(led_blinking_task, "blinky", BLINKY_STACK_SIZE, NULL, 1, blinky_stack, &blinky_taskdef);
   xTaskCreateStatic(usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-1, usb_device_stack, &usb_device_taskdef);
   xTaskCreateStatic(lwip_task, "lwip", LWIP_STACK_SIZE, NULL, configMAX_PRIORITIES - 2, lwip_stack, &lwip_taskdef);
+  xTaskCreateStatic(led_blinking_task, "blinky", BLINKY_STACK_SIZE, NULL, configMAX_PRIORITIES - 3, blinky_stack, &blinky_taskdef);
 #else
-  xTaskCreate(led_blinking_task, "blinky", BLINKY_STACK_SIZE, NULL, 1, NULL);
   xTaskCreate(usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES - 1, NULL);
   xTaskCreate(lwip_task, "lwip", LWIP_STACK_SIZE, NULL, configMAX_PRIORITIES - 2, NULL);
+  xTaskCreate(led_blinking_task, "blinky", BLINKY_STACK_SIZE, NULL, configMAX_PRIORITIES - 3, NULL);
 #endif
 
 #if !TUSB_MCU_VENDOR_ESPRESSIF
